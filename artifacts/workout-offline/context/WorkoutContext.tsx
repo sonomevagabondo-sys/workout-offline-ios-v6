@@ -27,6 +27,7 @@ import {
 } from '@/domain/progression';
 
 type WorkoutContextValue = WorkoutState & {
+  allHistory: CycleHistory[];
   hydrated: boolean;
   today: string;
   todayDay: WorkoutDay | undefined;
@@ -484,6 +485,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       ...state,
+      allHistory: state.history,
       history: state.history.filter((cycle) => cycle.programId === state.program.id),
       hydrated,
       today,

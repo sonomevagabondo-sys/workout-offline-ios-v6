@@ -1,2 +1,3 @@
 - [Program editing and starts](program-editing.md) — current-day edits apply now if incomplete or from its next occurrence if completed; new programs can begin on a chosen date.
 - [XP and workout comparisons](xp-progression.md) — award XP once per completed session; compare volume against the same workout and its closest session about a month earlier.
+- [Personal record interpretation](personal-records.md) — rate performance against the user’s own history and balance against the active plan, not universal strength norms.
