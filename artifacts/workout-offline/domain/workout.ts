@@ -43,6 +43,18 @@ export type WorkoutLog = {
   completedOn: string;
   streakAfter: number;
   volume: number;
+  workoutName?: string;
+  unit?: 'kg' | 'lb';
+  xpEarned?: number;
+  sets?: WorkoutLogSet[];
+};
+
+export type WorkoutLogSet = {
+  exerciseName: string;
+  group: string;
+  setIndex: number;
+  weight: number;
+  reps: number;
 };
 
 export type HistorySet = {
@@ -72,6 +84,7 @@ export type WorkoutState = {
   programs: Program[];
   activeProgramId: string;
   scheduledProgramId?: string;
+  totalXp: number;
   streak: number;
   record: number;
   logs: WorkoutLog[];

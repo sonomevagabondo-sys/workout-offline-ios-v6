@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { useWorkout } from '@/context/WorkoutContext';
 import { dayVolume, formatItalianDate, formatItalianDateLong, isDayReadyToFinish, isMilestone } from '@/domain/workout';
+import { WorkoutCompletionSummary, WorkoutComparison } from '@/domain/progression';
 import { Pill, PrimaryButton, ScreenHeader, SectionTitle, SetRow, styles as ui } from '@/components/WorkoutUI';
 
 export default function WorkoutScreen() {
@@ -14,7 +15,7 @@ export default function WorkoutScreen() {
   const router = useRouter();
   const workout = useWorkout();
   const [expanded, setExpanded] = useState(true);
-  const [celebration, setCelebration] = useState<{ streak: number; epic: boolean; newRecord: boolean } | null>(null);
+  const [celebration, setCelebration] = useState<WorkoutCompletionSummary | null>(null);
 
   useEffect(() => {
     if (workout.streakLostNotice) {
@@ -88,14 +89,141 @@ export default function WorkoutScreen() {
            <View style={[page.miniDivider, { backgroundColor: colors.border }]} /><View style={page.miniStat}><View style={[page.miniIcon, { backgroundColor: `${colors.orange}22` }]}><Feather name="target" size={15} color={colors.orange} /></View><Text style={[page.miniLabel, { color: colors.mutedForeground }]}>Prossimo obiettivo</Text><Text style={[page.miniValue, { color: colors.orange }]}>{isMilestone(workout.streak + 1) ? `${workout.streak + 1} giorni` : 'Continuità'}</Text></View>
         </View>
       </ScrollView>
-      {celebration ? <CelebrationModal celebration={celebration} onClose={() => setCelebration(null)} /> : null}
+      {celebration ? <WorkoutCompletionModal celebration={celebration} onClose={() => setCelebration(null)} /> : null}
     </View>
   );
 }
 
-function CelebrationModal({ celebration, onClose }: { celebration: { streak: number; epic: boolean; newRecord: boolean }; onClose: () => void }) {
+function WorkoutCompletionModal({ celebration, onClose }: { celebration: WorkoutCompletionSummary; onClose: () => void }) {
   const colors = useColors();
-  return <View style={[page.modalOverlay, { backgroundColor: `${colors.background}F2` }]}><View style={[page.celebration, { backgroundColor: colors.card, borderColor: colors.border }]}><Text style={page.fire}>✦</Text><Text style={[page.celebrationEyebrow, { color: colors.orange }]}>{celebration.newRecord ? 'NUOVO RECORD' : celebration.epic ? 'TRAGUARDO' : 'OTTIMO LAVORO'}</Text><Text style={[page.celebrationNumber, { color: colors.foreground }]}>{celebration.streak}</Text><Text style={[page.celebrationTitle, { color: colors.foreground }]}>{celebration.streak === 1 ? 'giorno di fila' : 'giorni di fila'}</Text><Text style={[page.celebrationBody, { color: colors.mutedForeground }]}>La costanza costruisce risultati. Domani si riparte da qui.</Text><PrimaryButton label="Continua" onPress={onClose} /></View></View>;
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View style={[page.modalOverlay, { backgroundColor: `${colors.background}F2`, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+        <View style={[page.completionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={page.completionContent}>
+            <View style={[page.completionIcon, { backgroundColor: colors.accent }]}>
+              <Feather name={celebration.xpEarned > 0 ? 'award' : 'check-circle'} size={25} color={colors.primary} />
+            </View>
+            <Text style={[page.celebrationEyebrow, { color: colors.orange }]}>
+              {celebration.newRecord ? 'NUOVO RECORD' : celebration.xpEarned > 0 ? 'ALLENAMENTO COMPLETATO' : 'SESSIONE AGGIORNATA'}
+            </Text>
+            <Text style={[page.completionTitle, { color: colors.foreground }]}>{celebration.workoutName}</Text>
+            <Text style={[page.completionSubtitle, { color: colors.mutedForeground }]}>
+              {Math.round(celebration.workoutVolume).toLocaleString('it-IT')} {celebration.unit} di volume · streak {celebration.streak}
+            </Text>
+
+            <View style={[page.xpEarnedCard, { backgroundColor: colors.surface2 }]}>
+              <View style={page.xpEarnedTop}>
+                <Text style={[page.xpEarnedLabel, { color: colors.mutedForeground }]}>XP GUADAGNATI</Text>
+                <Text style={[page.xpEarnedValue, { color: celebration.xpEarned > 0 ? colors.success : colors.mutedForeground }]}>
+                  +{celebration.xpEarned} XP
+                </Text>
+              </View>
+              <Text style={[page.xpEarnedMeta, { color: colors.foreground }]}>
+                {celebration.xpEarned > 0
+                  ? `Livello ${celebration.rank.level} · Rank ${celebration.rank.name} · ${celebration.totalXp.toLocaleString('it-IT')} XP totali`
+                  : `Gli XP di questa sessione erano già stati assegnati · ${celebration.totalXp.toLocaleString('it-IT')} XP totali`}
+              </Text>
+            </View>
+
+            <Text style={[page.comparisonHeading, { color: colors.foreground }]}>La tua progressione</Text>
+            <ComparisonCard
+              title="Rispetto all’ultima volta"
+              comparison={celebration.comparisons.last}
+              currentVolume={celebration.workoutVolume}
+              unit={celebration.unit}
+              colors={colors}
+              emptyText="Completa di nuovo questo allenamento per vedere il confronto."
+            />
+            <ComparisonCard
+              title="Rispetto a circa un mese fa"
+              comparison={celebration.comparisons.monthAgo}
+              currentVolume={celebration.workoutVolume}
+              unit={celebration.unit}
+              colors={colors}
+              emptyText="Non c’è una sessione dello stesso allenamento registrata circa un mese fa."
+            />
+            <Text style={[page.comparisonFootnote, { color: colors.mutedForeground }]}>
+              Il confronto usa il volume totale (carico × ripetizioni). Le variazioni per esercizio compaiono quando è disponibile lo storico dei set.
+            </Text>
+          </ScrollView>
+          <View style={page.modalFooter}>
+            <PrimaryButton label="Continua" icon="arrow-right" onPress={onClose} />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ComparisonCard({
+  title,
+  comparison,
+  currentVolume,
+  unit,
+  colors,
+  emptyText,
+}: {
+  title: string;
+  comparison: WorkoutComparison | null;
+  currentVolume: number;
+  unit: 'kg' | 'lb';
+  colors: ReturnType<typeof useColors>;
+  emptyText: string;
+}) {
+  if (!comparison) {
+    return (
+      <View style={[page.comparisonCard, { backgroundColor: colors.surface2 }]}>
+        <Text style={[page.comparisonTitle, { color: colors.foreground }]}>{title}</Text>
+        <Text style={[page.comparisonEmpty, { color: colors.mutedForeground }]}>{emptyText}</Text>
+      </View>
+    );
+  }
+
+  const improved = comparison.volumeChange >= 0;
+  const deltaColor = improved ? colors.success : colors.destructive;
+  const exerciseChanges = comparison.exercises
+    .slice()
+    .sort((a, b) => Math.abs(b.percentChange) - Math.abs(a.percentChange))
+    .slice(0, 3);
+
+  return (
+    <View style={[page.comparisonCard, { backgroundColor: colors.surface2 }]}>
+      <View style={page.comparisonHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={[page.comparisonTitle, { color: colors.foreground }]}>{title}</Text>
+          <Text style={[page.comparisonDate, { color: colors.mutedForeground }]}>{formatItalianDate(comparison.completedOn)}</Text>
+        </View>
+        <Text style={[page.comparisonPercent, { color: deltaColor }]}>
+          {improved ? '+' : ''}{Math.round(comparison.percentChange)}%
+        </Text>
+      </View>
+      <View style={page.comparisonVolumes}>
+        <Text style={[page.comparisonVolume, { color: colors.mutedForeground }]}>
+          Prima {Math.round(comparison.previousVolume).toLocaleString('it-IT')} {unit}
+        </Text>
+        <Text style={[page.comparisonVolume, { color: colors.foreground }]}>
+          Ora {Math.round(currentVolume).toLocaleString('it-IT')} {unit}
+        </Text>
+      </View>
+      <Text style={[page.comparisonDelta, { color: deltaColor }]}>
+        {improved ? '+' : ''}{Math.round(comparison.volumeChange).toLocaleString('it-IT')} {unit} di volume
+      </Text>
+      {exerciseChanges.length ? (
+        <View style={[page.exerciseChanges, { borderTopColor: colors.border }]}>
+          {exerciseChanges.map((item) => (
+            <View key={item.exerciseName} style={page.exerciseChangeRow}>
+              <Text style={[page.exerciseChangeName, { color: colors.mutedForeground }]} numberOfLines={1}>{item.exerciseName}</Text>
+              <Text style={[page.exerciseChangeValue, { color: item.volumeChange >= 0 ? colors.success : colors.destructive }]}>
+                {item.volumeChange >= 0 ? '+' : ''}{Math.round(item.percentChange)}%
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 const page = StyleSheet.create({
@@ -148,11 +276,32 @@ const page = StyleSheet.create({
   miniDivider: { width: 1 },
   miniLabel: { fontSize: 11, fontWeight: '600' },
   miniValue: { fontSize: 17, fontWeight: '800', marginTop: 4 },
-  modalOverlay: { ...StyleSheet.absoluteFill, zIndex: 10, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  celebration: { width: '100%', borderRadius: 28, borderWidth: 1, alignItems: 'center', padding: 28 },
-  fire: { fontSize: 64, color: '#FF9800', marginBottom: 8 },
-  celebrationEyebrow: { letterSpacing: 1.5, fontSize: 12, fontWeight: '900' },
-  celebrationNumber: { fontSize: 76, lineHeight: 82, fontWeight: '900', letterSpacing: -4 },
-  celebrationTitle: { fontSize: 22, fontWeight: '800' },
-  celebrationBody: { textAlign: 'center', fontSize: 14, lineHeight: 20, marginTop: 10, marginBottom: 22 },
+   modalOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 17 },
+   completionCard: { width: '100%', maxWidth: 520, maxHeight: '92%', borderRadius: 27, borderWidth: 1, overflow: 'hidden' },
+   completionContent: { padding: 20, paddingBottom: 8 },
+   completionIcon: { width: 48, height: 48, borderRadius: 17, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 13 },
+   completionTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center', marginTop: 7 },
+   completionSubtitle: { fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 4 },
+   celebrationEyebrow: { letterSpacing: 1.3, fontSize: 10, fontWeight: '900', textAlign: 'center' },
+   xpEarnedCard: { borderRadius: 17, padding: 14, marginTop: 18 },
+   xpEarnedTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+   xpEarnedLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+   xpEarnedValue: { fontSize: 20, fontWeight: '900' },
+   xpEarnedMeta: { fontSize: 11, fontWeight: '700', lineHeight: 16, marginTop: 5 },
+   comparisonHeading: { fontSize: 17, fontWeight: '900', marginTop: 19, marginBottom: 9 },
+   comparisonCard: { borderRadius: 17, padding: 13, marginBottom: 9 },
+   comparisonHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+   comparisonTitle: { fontSize: 12, fontWeight: '900' },
+   comparisonDate: { fontSize: 10, marginTop: 3 },
+   comparisonPercent: { fontSize: 20, fontWeight: '900' },
+   comparisonVolumes: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 12 },
+   comparisonVolume: { fontSize: 10, fontWeight: '700' },
+   comparisonDelta: { fontSize: 13, fontWeight: '900', marginTop: 7 },
+   comparisonEmpty: { fontSize: 11, lineHeight: 16, marginTop: 5 },
+   exerciseChanges: { borderTopWidth: 1, marginTop: 11, paddingTop: 6 },
+   exerciseChangeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 25, gap: 8 },
+   exerciseChangeName: { flex: 1, fontSize: 10, fontWeight: '700' },
+   exerciseChangeValue: { fontSize: 10, fontWeight: '900' },
+   comparisonFootnote: { fontSize: 10, lineHeight: 15, marginTop: 2, marginBottom: 6 },
+   modalFooter: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 16 },
 });

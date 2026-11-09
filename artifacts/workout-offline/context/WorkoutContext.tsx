@@ -15,9 +15,16 @@ import {
   todayIso,
   WorkoutDay,
   WorkoutLog,
+  WorkoutLogSet,
   WorkoutState,
   WorkoutSet,
 } from '@/domain/workout';
+import {
+  getRankProgress,
+  getWorkoutComparisons,
+  WorkoutCompletionSummary,
+  XP_PER_WORKOUT,
+} from '@/domain/progression';
 
 type WorkoutContextValue = WorkoutState & {
   hydrated: boolean;
@@ -25,7 +32,7 @@ type WorkoutContextValue = WorkoutState & {
   todayDay: WorkoutDay | undefined;
   cycleDay: number;
   updateSet: (dayId: string, exerciseId: string, setId: string, field: keyof Pick<WorkoutSet, 'weight' | 'reps'>, value: string) => void;
-  finishToday: () => { streak: number; epic: boolean; newRecord: boolean } | null;
+  finishToday: () => WorkoutCompletionSummary | null;
   createNewProgram: (program: Program) => void;
   updateProgram: (programId: string, name: string, days: WorkoutDay[], changedDayIndices: number[]) => void;
   clearProfile: () => void;
@@ -47,6 +54,7 @@ const initialState = (): WorkoutState => {
     programs: [program],
     activeProgramId: program.id,
     scheduledProgramId: undefined,
+    totalXp: 0,
     streak: 0,
     record: 0,
     logs: [],
@@ -58,9 +66,10 @@ const initialState = (): WorkoutState => {
   };
 };
 
-type StoredWorkoutState = WorkoutState & {
+type StoredWorkoutState = Omit<WorkoutState, 'programs' | 'activeProgramId' | 'totalXp'> & {
   programs?: Program[];
   activeProgramId?: string;
+  totalXp?: number;
 };
 
 const replaceProgram = (programs: Program[], program: Program) => {
@@ -77,6 +86,11 @@ const withActiveProgram = (state: WorkoutState, program: Program): WorkoutState 
 
 const normalizeState = (storedState: StoredWorkoutState, date: string): WorkoutState => {
   const savedPrograms = storedState.programs?.length ? storedState.programs : [storedState.program];
+  const savedLogs = Array.isArray(storedState.logs) ? storedState.logs : [];
+  const migratedXp = savedLogs.reduce(
+    (total, log) => total + (typeof log.xpEarned === 'number' ? log.xpEarned : XP_PER_WORKOUT),
+    0,
+  );
   const scheduledProgram = savedPrograms.find((program) => program.id === storedState.scheduledProgramId);
   const startScheduledProgram = Boolean(
     scheduledProgram && daysBetween(scheduledProgram.cycleStart, date) >= 0,
@@ -92,6 +106,11 @@ const normalizeState = (storedState: StoredWorkoutState, date: string): WorkoutS
     programs: replaceProgram(savedPrograms, activeProgram),
     activeProgramId: activeProgram.id,
     scheduledProgramId: startScheduledProgram ? undefined : scheduledProgram?.id,
+    logs: savedLogs,
+    totalXp:
+      typeof storedState.totalXp === 'number' && Number.isFinite(storedState.totalXp)
+        ? Math.max(0, storedState.totalXp)
+        : migratedXp,
   };
   let elapsed = daysBetween(next.program.cycleStart, date);
   let resetCount = 0;
@@ -209,29 +228,73 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const finishToday = () => {
     const day = getTodayDay(state.program, today);
     if (!day || !isDayReadyToFinish(day)) return null;
-    const alreadyLogged = state.logs.some((log) => log.dayId === day.id && log.completedOn === today);
+    const previousLog = state.logs.find((log) => log.dayId === day.id && log.completedOn === today);
+    const alreadyLogged = Boolean(previousLog);
     const newStreak = alreadyLogged ? state.streak : state.streak + 1;
     const newRecord = Math.max(state.record, newStreak);
+    const earnedXp = alreadyLogged ? 0 : XP_PER_WORKOUT;
+    const totalXp = state.totalXp + earnedXp;
+    const loggedSets: WorkoutLogSet[] = day.exercises.flatMap((exercise) =>
+      exercise.sets.map((set, setIndex) => ({
+        exerciseName: exercise.name,
+        group: exercise.group,
+        setIndex,
+        weight: Number(set.weight),
+        reps: Number(set.reps),
+      })),
+    );
     const log: WorkoutLog = {
       id: `${day.id}-${today}`,
       dayId: day.id,
       programId: state.program.id,
       completedOn: today,
-      streakAfter: newStreak,
+      streakAfter: previousLog?.streakAfter ?? newStreak,
       volume: dayVolume(day),
+      workoutName: day.name,
+      unit: state.unit,
+      sets: loggedSets,
+      ...(previousLog?.xpEarned !== undefined
+        ? { xpEarned: previousLog.xpEarned }
+        : earnedXp > 0
+          ? { xpEarned: earnedXp }
+          : {}),
     };
+    const comparisons = getWorkoutComparisons(
+      day,
+      state.logs,
+      state.program.id,
+      today,
+      state.unit,
+      dayVolume(day),
+    );
     setState((current) => withActiveProgram({
       ...current,
       streak: newStreak,
       record: newRecord,
+      totalXp: current.totalXp + earnedXp,
       streakLostNotice: false,
-      logs: alreadyLogged ? current.logs : [...current.logs, log],
+      logs: alreadyLogged
+        ? current.logs.map((item) =>
+            item.dayId === day.id && item.completedOn === today ? { ...item, ...log } : item,
+          )
+        : [...current.logs, log],
     }, {
         ...current.program,
         days: current.program.days.map((item) => (item.id === day.id ? { ...item, completed: true, completedOn: today } : item)),
       }));
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    return { streak: newStreak, epic: !alreadyLogged && (newStreak > state.record || [3, 7, 14, 30, 50, 75, 100, 150, 200, 365].includes(newStreak)), newRecord: newStreak > state.record && state.record > 0 };
+    return {
+      streak: newStreak,
+      epic: !alreadyLogged && (newStreak > state.record || [3, 7, 14, 30, 50, 75, 100, 150, 200, 365].includes(newStreak)),
+      newRecord: newStreak > state.record && state.record > 0,
+      xpEarned: earnedXp,
+      totalXp,
+      rank: getRankProgress(totalXp),
+      workoutName: day.name,
+      workoutVolume: dayVolume(day),
+      unit: state.unit,
+      comparisons,
+    };
   };
 
   const createNewProgram = (program: Program) => {

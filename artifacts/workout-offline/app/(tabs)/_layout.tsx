@@ -25,6 +25,10 @@ function NativeTabLayout() {
         <NativeTabs.Trigger.Icon sf={{ default: 'chart.bar', selected: 'chart.bar.fill' }} />
         <NativeTabs.Trigger.Label>Statistiche</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="xp">
+        <NativeTabs.Trigger.Icon sf={{ default: 'sparkles', selected: 'sparkles' }} />
+        <NativeTabs.Trigger.Label>XP</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <NativeTabs.Trigger.Icon sf={{ default: 'person', selected: 'person.fill' }} />
         <NativeTabs.Trigger.Label>Profilo</NativeTabs.Trigger.Label>
@@ -89,6 +93,14 @@ function ClassicTabLayout() {
           title: 'Statistiche',
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="chart.bar" tintColor={color} size={24} /> : <Feather name="bar-chart-2" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="xp"
+        options={{
+          title: 'XP',
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="sparkles" tintColor={color} size={24} /> : <Feather name="award" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
