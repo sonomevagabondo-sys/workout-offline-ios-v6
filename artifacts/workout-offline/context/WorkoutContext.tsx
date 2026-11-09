@@ -46,6 +46,7 @@ const initialState = (): WorkoutState => {
     program,
     programs: [program],
     activeProgramId: program.id,
+    scheduledProgramId: undefined,
     streak: 0,
     record: 0,
     logs: [],
@@ -76,8 +77,13 @@ const withActiveProgram = (state: WorkoutState, program: Program): WorkoutState 
 
 const normalizeState = (storedState: StoredWorkoutState, date: string): WorkoutState => {
   const savedPrograms = storedState.programs?.length ? storedState.programs : [storedState.program];
+  const scheduledProgram = savedPrograms.find((program) => program.id === storedState.scheduledProgramId);
+  const startScheduledProgram = Boolean(
+    scheduledProgram && daysBetween(scheduledProgram.cycleStart, date) >= 0,
+  );
+  const nextActiveProgramId = startScheduledProgram ? scheduledProgram?.id : storedState.activeProgramId;
   const activeProgram =
-    savedPrograms.find((program) => program.id === storedState.activeProgramId) ??
+    savedPrograms.find((program) => program.id === nextActiveProgramId) ??
     savedPrograms.find((program) => program.id === storedState.program.id) ??
     storedState.program;
   let next: WorkoutState = {
@@ -85,6 +91,7 @@ const normalizeState = (storedState: StoredWorkoutState, date: string): WorkoutS
     program: activeProgram,
     programs: replaceProgram(savedPrograms, activeProgram),
     activeProgramId: activeProgram.id,
+    scheduledProgramId: startScheduledProgram ? undefined : scheduledProgram?.id,
   };
   let elapsed = daysBetween(next.program.cycleStart, date);
   let resetCount = 0;
@@ -230,12 +237,21 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const createNewProgram = (program: Program) => {
     setState((current) => {
       const nextProgram = { ...program, cycleNumber: 1 };
-      return {
+      const programs = [...current.programs, nextProgram];
+      if (nextProgram.cycleStart > today) {
+        return normalizeState({
+          ...current,
+          programs,
+          scheduledProgramId: nextProgram.id,
+        }, today);
+      }
+      return normalizeState({
         ...current,
         program: nextProgram,
-        programs: [...current.programs, nextProgram],
+        programs,
         activeProgramId: nextProgram.id,
-      };
+        scheduledProgramId: undefined,
+      }, today);
     });
   };
 
@@ -308,7 +324,9 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       }
 
       let days =
-        elapsedDays < 7
+        elapsedDays < 0
+          ? changed.length ? nextCycleDays : existingProgram.days
+          : elapsedDays < 7
           ? existingProgram.days.map((day, index) => {
               if (
                 index < elapsedDays ||
@@ -320,7 +338,7 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
             })
           : existingProgram.days;
 
-      if (elapsedDays < 7) {
+      if (elapsedDays >= 0 && elapsedDays < 7) {
         for (const sourceIndex of changed) {
           const savedCurrentDay = sourceIndex === elapsedDays && existingProgram.days[sourceIndex]?.completed;
           if (savedCurrentDay) continue;
@@ -354,7 +372,13 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
   const switchProgram = (programId: string) => {
     setState((current) => {
       const nextProgram = current.programs.find((program) => program.id === programId);
-      return nextProgram ? normalizeState(withActiveProgram(current, nextProgram), today) : current;
+      if (!nextProgram || (current.scheduledProgramId === programId && nextProgram.cycleStart > today)) {
+        return current;
+      }
+      return normalizeState({
+        ...withActiveProgram(current, nextProgram),
+        scheduledProgramId: undefined,
+      }, today);
     });
   };
 
@@ -363,20 +387,25 @@ export function WorkoutProvider({ children }: { children: React.ReactNode }) {
       if (current.programs.length <= 1) return current;
       const remaining = current.programs.filter((program) => program.id !== programId);
       const deletedActive = current.activeProgramId === programId;
+      const scheduledProgramId = current.scheduledProgramId === programId
+        ? undefined
+        : current.scheduledProgramId;
       if (!deletedActive) {
         return {
           ...current,
           programs: remaining,
+          scheduledProgramId,
           logs: current.logs.filter((log) => log.programId !== programId),
           history: current.history.filter((cycle) => cycle.programId !== programId),
         };
       }
-      const nextProgram = remaining[0];
+      const nextProgram = remaining.find((program) => program.id !== scheduledProgramId) ?? remaining[0];
       return normalizeState({
         ...current,
         program: nextProgram,
         programs: remaining,
         activeProgramId: nextProgram.id,
+        scheduledProgramId,
         logs: current.logs.filter((log) => log.programId !== programId),
         history: current.history.filter((cycle) => cycle.programId !== programId),
       }, today);

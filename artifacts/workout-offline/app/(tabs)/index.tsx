@@ -5,7 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { useWorkout } from '@/context/WorkoutContext';
-import { dayVolume, formatItalianDate, isDayReadyToFinish, isMilestone } from '@/domain/workout';
+import { dayVolume, formatItalianDate, formatItalianDateLong, isDayReadyToFinish, isMilestone } from '@/domain/workout';
 import { Pill, PrimaryButton, ScreenHeader, SectionTitle, SetRow, styles as ui } from '@/components/WorkoutUI';
 
 export default function WorkoutScreen() {
@@ -24,11 +24,13 @@ export default function WorkoutScreen() {
 
   const todayDay = workout.todayDay;
   const ready = todayDay ? isDayReadyToFinish(todayDay) : false;
+  const scheduledProgram = workout.programs.find((program) => program.id === workout.scheduledProgramId);
   const trainingDays = workout.program.days.filter((day) => day.type !== 'Rest').length;
   const completedTrainingDays = workout.program.days.filter((day) => day.completed).length;
-  const cycleProgress = Math.min(workout.cycleDay + 1, 7);
+  const cycleProgress = workout.cycleDay < 0 ? 0 : Math.min(workout.cycleDay + 1, 7);
 
   const finish = () => {
+    if (!todayDay) return;
     if (todayDay.completed) {
       Alert.alert(`Hai già completato Giorno ${todayDay.order}`, 'Vuoi salvare i nuovi pesi?', [{ text: 'Annulla', style: 'cancel' }, { text: 'Conferma', onPress: () => setCelebration(workout.finishToday()) }]);
       return;
@@ -42,8 +44,9 @@ export default function WorkoutScreen() {
     <View style={[page.root, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={[page.content, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 110 }]} showsVerticalScrollIndicator={false}>
         <ScreenHeader eyebrow={`Programma: ${workout.program.name}`} title="Allenamento" right={<View style={page.streakBadge}><Text style={page.streakIcon}>✦</Text><View><Text style={[page.streakValue, { color: colors.orange }]}>{workout.streak} giorni</Text><Text style={[page.streakRecord, { color: colors.mutedForeground }]}>record {workout.record}</Text></View></View>} />
+        {scheduledProgram ? <View style={[page.scheduledCard, { backgroundColor: colors.card, borderColor: colors.border }]}><View style={[page.scheduledIcon, { backgroundColor: colors.accent }]}><Feather name="calendar" size={16} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={[page.scheduledLabel, { color: colors.mutedForeground }]}>PROSSIMO PROGRAMMA</Text><Text style={[page.scheduledName, { color: colors.foreground }]}>{scheduledProgram.name}</Text><Text style={[page.scheduledDate, { color: colors.primary }]}>Inizia il {formatItalianDateLong(scheduledProgram.cycleStart)}</Text></View></View> : null}
          <View style={[page.cycleBanner, { backgroundColor: colors.primary }]}>
-           <View style={page.cycleTop}><View><Text style={page.cycleEyebrow}>CICLO {workout.program.cycleNumber}</Text><Text style={page.cycleTitle}>Giorno {cycleProgress} <Text style={page.cycleSub}>di 7</Text></Text></View><View style={page.cyclePercent}><Text style={page.cyclePercentValue}>{Math.round((cycleProgress / 7) * 100)}%</Text><Text style={page.cyclePercentLabel}>completato</Text></View></View>
+            <View style={page.cycleTop}><View><Text style={page.cycleEyebrow}>CICLO {workout.program.cycleNumber}</Text><Text style={page.cycleTitle}>{cycleProgress === 0 ? `Inizia il ${formatItalianDateLong(workout.program.cycleStart)}` : <>Giorno {cycleProgress} <Text style={page.cycleSub}>di 7</Text></>}</Text></View><View style={page.cyclePercent}><Text style={page.cyclePercentValue}>{Math.round((cycleProgress / 7) * 100)}%</Text><Text style={page.cyclePercentLabel}>{cycleProgress === 0 ? 'in attesa' : 'completato'}</Text></View></View>
           <View style={page.progressTrack}><View style={[page.progressFill, { width: `${(cycleProgress / 7) * 100}%` }]} /></View>
         </View>
         <Pressable onPress={() => router.push('/programs')} style={({ pressed }) => [page.programSwitch, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 }]}>
@@ -54,7 +57,7 @@ export default function WorkoutScreen() {
         <SectionTitle title="Questa settimana" action={<Text style={[page.adherence, { color: colors.mutedForeground }]}>{completedTrainingDays}/{trainingDays} giorni</Text>} />
         <View style={page.dayList}>
           {workout.program.days.map((day) => {
-            const isToday = day.order === cycleProgress;
+            const isToday = cycleProgress > 0 && day.order === cycleProgress;
             const isRest = day.type === 'Rest';
             return (
               <View key={day.id} style={[page.dayCard, { backgroundColor: colors.card, borderColor: isToday ? colors.primary : colors.border, borderWidth: isToday ? 1.5 : 1 }]}>
@@ -103,6 +106,11 @@ const page = StyleSheet.create({
   streakIcon: { fontSize: 25, color: '#FF9800' },
   streakValue: { fontSize: 13, fontWeight: '800' },
   streakRecord: { fontSize: 11, marginTop: 2 },
+  scheduledCard: { borderWidth: 1, borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 13 },
+  scheduledIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  scheduledLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  scheduledName: { fontSize: 13, fontWeight: '800', marginTop: 2 },
+  scheduledDate: { fontSize: 11, fontWeight: '700', marginTop: 2 },
    cycleBanner: { borderRadius: 24, padding: 19, marginBottom: 13 },
    cycleTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cycleEyebrow: { color: '#FFFFFFAA', fontSize: 11, letterSpacing: 1.1, fontWeight: '800' },

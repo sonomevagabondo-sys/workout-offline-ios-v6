@@ -3,8 +3,8 @@ name: Program edit behavior
 description: Preserve workout progress while applying program edits to future days.
 ---
 
-When editing a saved program, completed days can be changed as templates, and the chosen day's plan propagates to later days. Keep recorded completed sessions unchanged; for the active program, keep today's in-progress session unchanged. Preserve the program cycle date, cycle number, streak, and history.
+When editing a saved program, the current day is editable: if incomplete, apply changes immediately while preserving entered values for matching sets; if completed, preserve its saved workout and apply the change from its next occurrence. Edits to other days propagate forward, and all edits persist into the next cycle. New programs start on the user's chosen date; a future-dated plan is scheduled while the current program remains active until then.
 
-**Why:** The user wants edits to a completed day to shape all upcoming workouts, while completed training records and the active session remain trustworthy.
+**Why:** The user wants an unsaved workout to reflect edits immediately, a completed workout to remain historically accurate, and new programs to begin on a date they choose.
 
-**How to apply:** Apply changed templates to uncompleted future days and keep the complete plan for the next cycle. Preserve day and exercise IDs where possible so logs remain associated with the same program.
+**How to apply:** Preserve day and exercise IDs where possible. Keep saved logs unchanged, retain matching current set entries for immediate edits, apply completed-day changes at their next recurrence, and auto-activate scheduled programs on their start date.

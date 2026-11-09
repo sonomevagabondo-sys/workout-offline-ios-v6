@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
-import { addDays, createProgram, DayType, daysBetween, Exercise, exerciseCatalog, formatItalianDate, fromIsoDate, Program, toIsoDate } from '@/domain/workout';
+import { createProgram, DayType, daysBetween, Exercise, exerciseCatalog, formatItalianDate, formatItalianDateLong, fromIsoDate, Program, toIsoDate } from '@/domain/workout';
 import { useWorkout } from '@/context/WorkoutContext';
 import { PrimaryButton, SecondaryButton } from '@/components/WorkoutUI';
 
@@ -67,6 +67,9 @@ export default function ProgramsScreen() {
     });
   }, [calendarMonth, startDate, workout.today]);
   const currentMonth = fromIsoDate(workout.today);
+  const calendarMonthTitle = calendarMonth.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+  const formattedCalendarMonthTitle =
+    calendarMonthTitle.charAt(0).toLocaleUpperCase('it-IT') + calendarMonthTitle.slice(1);
   const canShowPreviousMonth =
     calendarMonth.getFullYear() > currentMonth.getFullYear() ||
     (calendarMonth.getFullYear() === currentMonth.getFullYear() && calendarMonth.getMonth() > currentMonth.getMonth());
@@ -254,18 +257,46 @@ export default function ProgramsScreen() {
       Alert.alert('Aggiungi un esercizio', `Il Giorno ${missingExercises + 1} è un giorno di allenamento: aggiungi almeno un esercizio.`);
       return;
     }
-    const program = createProgram(
-      name.trim() || 'Il mio programma',
-      types.map((type, index) => ({ type, name: dayNames[index], exercises: type === 'Rest' ? [] : selected[index] ?? [] })),
-      startDate,
-    );
-    if (editingProgram) {
-      workout.updateProgram(editingProgram.id, program.name, program.days, editedDayIndices);
+    const commit = () => {
+      const program = createProgram(
+        name.trim() || 'Il mio programma',
+        types.map((type, index) => ({ type, name: dayNames[index], exercises: type === 'Rest' ? [] : selected[index] ?? [] })),
+        startDate,
+      );
+      if (editingProgram) {
+        workout.updateProgram(editingProgram.id, program.name, program.days, editedDayIndices);
+      } else {
+        workout.createNewProgram(program);
+      }
       router.back();
+    };
+    const currentDay = editingActiveToday ? editingProgram?.days[editingElapsedDays] : undefined;
+    const editedCurrentExercises = types[editingElapsedDays] === 'Rest' ? [] : selected[editingElapsedDays] ?? [];
+    const removesEnteredValues = Boolean(
+      currentDay &&
+      !editingActiveTodaySaved &&
+      currentDay.exercises.some((exercise) => {
+        const replacement = editedCurrentExercises.find(
+          (item) => item.id === exercise.id || item.name === exercise.name,
+        );
+        const removedSets = replacement
+          ? exercise.sets.slice(replacement.sets.length)
+          : exercise.sets;
+        return removedSets.some((set) => Boolean(set.weight.trim() || set.reps.trim()));
+      }),
+    );
+    if (removesEnteredValues) {
+      Alert.alert(
+        'Modifiche alla sessione di oggi',
+        'Alcuni valori inseriti appartengono a esercizi o serie che stai rimuovendo. Continuando, quei valori verranno eliminati dalla sessione di oggi.',
+        [
+          { text: 'Annulla', style: 'cancel' },
+          { text: 'Elimina e salva', style: 'destructive', onPress: commit },
+        ],
+      );
       return;
     }
-    workout.createNewProgram(program);
-    router.back();
+    commit();
   };
 
   return (
@@ -277,13 +308,14 @@ export default function ProgramsScreen() {
          <View style={[page.programList, { backgroundColor: colors.card, borderColor: colors.border }]}>
            {workout.programs.map((program) => {
              const active = program.id === workout.activeProgramId;
+              const scheduled = program.id === workout.scheduledProgramId;
              const trainingDays = program.days.filter((day) => day.type !== 'Rest').length;
              const exerciseCount = program.days.reduce((total, day) => total + day.exercises.length, 0);
              return <View key={program.id} style={[page.programRow, { borderBottomColor: colors.border }]}>
-               <Pressable onPress={() => { if (!active) workout.switchProgram(program.id); router.back(); }} style={({ pressed }) => [page.programMain, { opacity: pressed ? 0.72 : 1 }]}>
+                <Pressable disabled={scheduled} onPress={() => { if (!active) workout.switchProgram(program.id); router.back(); }} style={({ pressed }) => [page.programMain, { opacity: scheduled ? 0.65 : pressed ? 0.72 : 1 }]}>
                  <View style={[page.programIcon, { backgroundColor: active ? colors.accent : colors.muted }]}><Feather name={active ? 'check' : 'layers'} size={16} color={active ? colors.primary : colors.mutedForeground} /></View>
-                 <View style={{ flex: 1 }}><Text style={[page.programRowName, { color: colors.foreground }]}>{program.name}</Text><Text style={[page.programRowMeta, { color: colors.mutedForeground }]}>{trainingDays} giorni · {exerciseCount} esercizi · ciclo {program.cycleNumber}</Text></View>
-                 <Text style={[page.programStatus, { color: active ? colors.success : colors.primary }]}>{active ? 'ATTIVO' : 'ATTIVA'}</Text>
+                  <View style={{ flex: 1 }}><Text style={[page.programRowName, { color: colors.foreground }]}>{program.name}</Text><Text style={[page.programRowMeta, { color: colors.mutedForeground }]}>{trainingDays} giorni · {exerciseCount} esercizi · ciclo {program.cycleNumber}</Text>{scheduled ? <Text style={[page.programRowMeta, { color: colors.primary }]}>Inizia il {formatItalianDateLong(program.cycleStart)}</Text> : null}</View>
+                  <Text style={[page.programStatus, { color: active ? colors.success : colors.primary }]}>{active ? 'ATTIVO' : scheduled ? 'PROGRAMMATO' : 'ATTIVA'}</Text>
                </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={`Modifica ${program.name}`} onPress={() => editSavedProgram(program)} hitSlop={8} style={page.rowAction}><Feather name="edit-2" size={16} color={colors.primary} /></Pressable>
                <Pressable onPress={() => {
@@ -301,14 +333,14 @@ export default function ProgramsScreen() {
          </View>
           <View style={page.formSection} onLayout={(event) => { editorOffset.current = event.nativeEvent.layout.y; }}>
           <Text style={[page.sectionLabel, { color: colors.foreground }]}>{editingProgram ? 'Modifica programma' : 'Crea un nuovo programma'}</Text>
-           {editingProgram ? <View style={[page.editNotice, { backgroundColor: colors.accent }]}><Feather name="clock" size={15} color={colors.primary} /><Text style={[page.editNoticeText, { color: colors.accentForeground }]}>{editingActiveToday ? editingActiveTodaySaved ? 'La giornata di oggi è già salvata: la sua modifica sarà attiva dalla prossima occorrenza. Gli altri giorni non completati si aggiornano subito.' : 'Se modifichi la giornata di oggi, la modifica si applica subito. Le sessioni già completate restano invariate.' : editingElapsedDays >= 6 ? 'Puoi modificare anche i giorni completati. La scheda scelta verrà applicata ai giorni successivi dal prossimo ciclo; lo storico resta invariato.' : 'Puoi modificare anche i giorni completati: la scheda scelta verrà applicata a tutti i giorni successivi. Gli allenamenti già registrati restano invariati.'}</Text></View> : null}
+            {editingProgram ? <View style={[page.editNotice, { backgroundColor: colors.accent }]}><Feather name="clock" size={15} color={colors.primary} /><Text style={[page.editNoticeText, { color: colors.accentForeground }]}>{editingActiveToday ? editingActiveTodaySaved ? 'La giornata di oggi è già salvata: la sua modifica sarà attiva dalla prossima occorrenza. L’allenamento registrato resta invariato.' : 'Se modifichi la giornata di oggi, la modifica si applica subito. Le sessioni già completate restano invariate.' : editingElapsedDays < 0 ? `Il programma inizia il ${formatItalianDateLong(editingProgram.cycleStart)}. Le modifiche saranno pronte da quella data.` : editingElapsedDays >= 6 ? 'Puoi modificare anche i giorni completati. La scheda scelta verrà applicata ai giorni successivi dal prossimo ciclo; lo storico resta invariato.' : 'Puoi modificare anche i giorni completati: la scheda scelta verrà applicata a tutti i giorni successivi. Gli allenamenti già registrati restano invariati.'}</Text></View> : null}
           <Text style={[page.label, { color: colors.foreground }]}>Nome programma</Text>
           <TextInput value={name} onChangeText={setName} placeholder="es. Forza e controllo" placeholderTextColor={colors.mutedForeground} style={[page.input, { color: colors.foreground, backgroundColor: colors.card, borderColor: colors.border }]} />
            {!editingProgram ? <>
              <Text style={[page.label, { color: colors.foreground }]}>Data di inizio</Text>
              <Pressable onPress={openStartDatePicker} style={[page.startDateButton, { backgroundColor: colors.card, borderColor: colors.border }]}>
                <View style={[page.startDateIcon, { backgroundColor: colors.accent }]}><Feather name="calendar" size={16} color={colors.primary} /></View>
-               <View style={{ flex: 1 }}><Text style={[page.startDateValue, { color: colors.foreground }]}>{formatItalianDate(startDate)}</Text><Text style={[page.startDateHint, { color: colors.mutedForeground }]}>Oggi o una data futura</Text></View>
+               <View style={{ flex: 1 }}><Text style={[page.startDateValue, { color: colors.foreground }]}>{formatItalianDateLong(startDate)}</Text><Text style={[page.startDateHint, { color: colors.mutedForeground }]}>Oggi o una data futura</Text></View>
                <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
              </Pressable>
            </> : null}
@@ -354,7 +386,7 @@ export default function ProgramsScreen() {
             {groups.map((group) => <View key={group}><Text style={[page.catalogGroup, { color: colors.mutedForeground }]}>{group}</Text>{exerciseCatalog.filter((item) => item.group === group).map((item) => { const checked = currentExercises.some((exercise) => exercise.name === item.name); return <Pressable key={item.name} onPress={() => checked ? removeExercise(item.name) : openCatalogConfig(item)} style={page.exerciseChoice}><View style={[page.checkbox, { borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent' }]}>{checked ? <Feather name="check" size={12} color={colors.primaryForeground} /> : null}</View><Text style={[page.choiceName, { color: colors.foreground }]}>{item.name}</Text><Text style={[page.choiceTarget, { color: colors.mutedForeground }]}>{checked ? 'Aggiunto' : `${item.sets}×${item.reps} suggerito`}</Text></Pressable>; })}</View>)}
           </View>
         ) : null}
-          <PrimaryButton label={editingProgram ? 'Salva modifiche' : 'Salva e attiva nuovo programma'} icon="check" onPress={save} />
+          <PrimaryButton label={editingProgram ? 'Salva modifiche' : startDate > workout.today ? 'Pianifica programma' : 'Salva e attiva nuovo programma'} icon="check" onPress={save} />
           <SecondaryButton label={editingProgram ? 'Annulla modifica' : 'Annulla'} onPress={() => editingProgram ? resetEditor() : router.back()} />
           </View>
       </ScrollView>
@@ -369,6 +401,67 @@ export default function ProgramsScreen() {
             <View style={page.targetRow}><View style={{ flex: 1 }}><Text style={[page.modalLabel, { color: colors.foreground }]}>Numero di set</Text><TextInput value={targetSets} onChangeText={setTargetSets} keyboardType="number-pad" returnKeyType="done" placeholder="3" placeholderTextColor={colors.mutedForeground} style={[page.modalInput, { color: colors.foreground, backgroundColor: colors.surface2, borderColor: colors.border }]} /></View><View style={{ flex: 1 }}><Text style={[page.modalLabel, { color: colors.foreground }]}>Ripetizioni target</Text><TextInput value={targetReps} onChangeText={setTargetReps} keyboardType="number-pad" returnKeyType="done" placeholder="10" placeholderTextColor={colors.mutedForeground} style={[page.modalInput, { color: colors.foreground, backgroundColor: colors.surface2, borderColor: colors.border }]} /></View></View>
             <PrimaryButton label="Aggiungi esercizio" icon="plus" onPress={saveExercise} />
             <SecondaryButton label="Annulla" onPress={closeExerciseConfig} />
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={datePickerVisible} transparent animationType="slide" onRequestClose={() => setDatePickerVisible(false)}>
+        <View style={[page.modalBackdrop, { backgroundColor: `${colors.background}CC` }]}>
+          <View style={[page.dateModal, { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: insets.bottom + 18 }]}>
+            <View style={page.modalHandle} />
+            <View style={page.dateModalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={[page.modalTitle, { color: colors.foreground }]}>Inizio programma</Text>
+                <Text style={[page.modalSubtitle, { color: colors.mutedForeground }]}>Scegli oggi o una data futura</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Chiudi calendario" onPress={() => setDatePickerVisible(false)} hitSlop={8}>
+                <Feather name="x" size={20} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+            <View style={page.calendarMonthRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Mese precedente"
+                disabled={!canShowPreviousMonth}
+                onPress={() => changeCalendarMonth(-1)}
+                style={[page.calendarNav, { backgroundColor: colors.surface2, opacity: canShowPreviousMonth ? 1 : 0.35 }]}
+              >
+                <Feather name="chevron-left" size={18} color={colors.foreground} />
+              </Pressable>
+              <Text style={[page.calendarMonthTitle, { color: colors.foreground }]}>{formattedCalendarMonthTitle}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Mese successivo"
+                onPress={() => changeCalendarMonth(1)}
+                style={[page.calendarNav, { backgroundColor: colors.surface2 }]}
+              >
+                <Feather name="chevron-right" size={18} color={colors.foreground} />
+              </Pressable>
+            </View>
+            <View style={page.calendarWeekRow}>
+              {['L', 'M', 'M', 'G', 'V', 'S', 'D'].map((weekday, index) => (
+                <Text key={`${weekday}-${index}`} style={[page.calendarWeekday, { color: colors.mutedForeground }]}>{weekday}</Text>
+              ))}
+            </View>
+            <View style={page.calendarGrid}>
+              {calendarCells.map((cell, index) => cell ? (
+                <Pressable
+                  key={cell.date}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Scegli ${formatItalianDateLong(cell.date)}`}
+                  accessibilityState={{ disabled: cell.disabled, selected: cell.selected }}
+                  disabled={cell.disabled}
+                  onPress={() => selectStartDate(cell.date)}
+                  style={[
+                    page.calendarDay,
+                    { backgroundColor: cell.selected ? colors.primary : 'transparent', opacity: cell.disabled ? 0.35 : 1 },
+                  ]}
+                >
+                  <Text style={[page.calendarDayText, { color: cell.selected ? colors.primaryForeground : colors.foreground }]}>{cell.day}</Text>
+                </Pressable>
+              ) : (
+                <View key={`blank-${index}`} style={page.calendarDay} />
+              ))}
+            </View>
           </View>
         </View>
       </Modal>
@@ -402,6 +495,10 @@ const page = StyleSheet.create({
   editNoticeText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   label: { fontSize: 13, fontWeight: '800', marginTop: 6 },
   input: { minHeight: 52, borderWidth: 1, borderRadius: 16, paddingHorizontal: 15, fontSize: 15 },
+  startDateButton: { minHeight: 64, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  startDateIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  startDateValue: { fontSize: 14, fontWeight: '800' },
+  startDateHint: { fontSize: 11, marginTop: 3 },
   dayRow: { borderWidth: 1, borderRadius: 20, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10 },
   dayIndex: { width: 30, alignItems: 'center' },
   dayIndexCircle: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
@@ -442,4 +539,14 @@ const page = StyleSheet.create({
   groupOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 5 },
   groupOption: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 7 },
   groupOptionText: { fontSize: 11, fontWeight: '800' },
+  dateModal: { width: '100%', maxHeight: '92%', borderTopLeftRadius: 28, borderTopRightRadius: 28, borderWidth: 1, padding: 19, gap: 15 },
+  dateModalHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 2 },
+  calendarMonthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  calendarNav: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  calendarMonthTitle: { fontSize: 16, fontWeight: '800' },
+  calendarWeekRow: { flexDirection: 'row' },
+  calendarWeekday: { width: '14.2857%', textAlign: 'center', fontSize: 11, fontWeight: '800', paddingVertical: 7 },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calendarDay: { width: '14.2857%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 14 },
+  calendarDayText: { fontSize: 14, fontWeight: '700' },
 });

@@ -1,1 +1,1 @@
-- [Program edit behavior](program-editing.md) — edits preserve the current cycle and progress, applying changes to future workout days.
+- [Program editing and starts](program-editing.md) — current-day edits apply now if incomplete or from its next occurrence if completed; new programs can begin on a chosen date.

@@ -71,6 +71,7 @@ export type WorkoutState = {
   program: Program;
   programs: Program[];
   activeProgramId: string;
+  scheduledProgramId?: string;
   streak: number;
   record: number;
   logs: WorkoutLog[];
@@ -127,6 +128,9 @@ export const daysBetween = (from: string, to: string) =>
 
 export const formatItalianDate = (value: string) =>
   fromIsoDate(value).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+
+export const formatItalianDateLong = (value: string) =>
+  fromIsoDate(value).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' });
 
 const makeExercise = (name: string, group: string, sets: number, reps: number): Exercise => ({
   id: uid('exercise'),
